@@ -16,8 +16,6 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 from mpl_toolkits.axisartist.clip_path import clip
 
-def dbg(name):
-    print name,' = ',eval(name)
 
 _proj_cyl = ccrs.PlateCarree()
 
@@ -107,6 +105,13 @@ class xOrtho(ccrs.Orthographic):
 #    def set_zoom(self, z):
 #        self._zoom = z
 
+def clip_to_lims(x, lims):
+    range = lims[1]-lims[0]
+    x = x - lims[0] + 2*range
+    x = x - range*int(x/range)
+    return x + lims[0]
+
+
 _r_globe = xOrtho()._max
 _d_globe = 2.0 * _r_globe
 
@@ -114,9 +119,7 @@ _mouse_is_down = False
 _min_update_secs = 0.5
 _last_update_time = datetime.datetime.now()
 
-_globe_xpos = 35.0
-_globe_ypos = 17.5
-_globe_start_pos = (_globe_xpos, _globe_ypos)
+_globe_pos = [35.0, 17.5]
 _globe_zoom = 1.0
 
 _show_details = True
@@ -124,7 +127,7 @@ figure = None
 def redraw_globe():
     if figure is not None:
         plt.clf()
-        ax=plt.axes(projection=xOrtho(central_longitude=_globe_xpos, central_latitude=_globe_ypos));
+        ax=plt.axes(projection=xOrtho(central_longitude=_globe_pos[0], central_latitude=_globe_pos[1]));
         ax.set_autoscale_on(False)
         r = _r_globe / _globe_zoom
         ax.set_xlim(-r,r)
@@ -135,34 +138,34 @@ def redraw_globe():
         t=draw_gridlines(8,4);
         plt.draw(); plt.show(block=False)
 
-def globe_drag_start():
-    global _show_details
-    print '[simplify]'
+def globe_drag_start(datapos):
+    global _show_details, _mouse_start_datapos, _globe_start_pos
+    global _globe_pos
+    print '[start]'
     _show_details = False
+    _globe_start_pos = [0, 0]
+    _globe_start_pos[0] = clip_to_lims(_globe_pos[0], [-180.0, 180.0])
+    _globe_start_pos[1] = clip_to_lims(_globe_pos[1], [-90.0, 90.0])
+    _mouse_start_datapos = datapos
     redraw_globe()
 
-def clip_to_lims(x, lims):
-    range = lims[1]-lims[0]
-    x = x - lims[0] + 2*range
-    x = x - range*int(x/range)
-    return x + lims[0]
-
-def globe_drag_fromto(start_pos, stop_pos):
-    global _globe_start_pos, _globe_xpos, _globe_ypos
-    print '[simplify]'
-    deltas = [(stop_pos[i]-start_pos[i])/_d_globe for i in range(2)]
-    _globe_xpos = clip_to_lims(_globe_start_pos[0] - deltas[0]*180.0, [-180.0, 180.0])
-    _globe_ypos = clip_to_lims(_globe_start_pos[1] - deltas[1]*180.0, [-90.0, 90.0])
+def globe_drag_to(datapos):
+    global _globe_start_pos, _globe_pos, _mouse_start_datapos
+    print '[move]'
+    deltas = [(datapos[i]-_mouse_start_datapos[i])/_d_globe for i in range(2)]
+    print 'deltas = ', deltas
+    _globe_pos[0] = clip_to_lims(_globe_start_pos[0] - deltas[0]*180.0, [-180.0, 180.0])
+    _globe_pos[1] = clip_to_lims(_globe_start_pos[1] - deltas[1]*180.0, [-90.0, 90.0])
     redraw_globe()
 
 def globe_drag_stop():
     global _show_details
-    print '[full-draw]'
+    print '[stop]'
     _show_details = True
     redraw_globe()
 
 def _mouse_udm(ev):
-    global _mouse_is_down, _start_pos, _stop_pos, _r_globe, _last_update_time
+    global _mouse_is_down, _last_update_time
 #    print 'mouse event : ',ev.name,', button=',ev.button
     if ev.name == 'button_press_event':
         if not _mouse_is_down and ev.inaxes:
@@ -170,26 +173,24 @@ def _mouse_udm(ev):
             print '@({},{})'.format(ev.xdata,ev.ydata)
             print
             _mouse_is_down = True
-            _globe_start_pos = (_globe_xpos, _globe_ypos)
-            _start_pos = (ev.xdata, ev.ydata)
-            globe_drag_start()
+            globe_drag_start((ev.xdata, ev.ydata))
 
     elif ev.name == 'motion_notify_event':
         if _mouse_is_down and ev.inaxes:
-            _stop_pos = (ev.xdata, ev.ydata)
+            datapos = (ev.xdata, ev.ydata)
             new_update_time = datetime.datetime.now()
             secs_since = (new_update_time - _last_update_time).total_seconds()
             if secs_since > _min_update_secs:
                 _last_update_time = new_update_time
-                print ' .. move to ',_stop_pos
-            globe_drag_fromto(_start_pos, _stop_pos)
+                print ' .. move to ',datapos
+            globe_drag_to(datapos)
 
     elif ev.name == 'button_release_event':
         _mouse_is_down = False
         if ev.inaxes:
-            _stop_pos = (ev.xdata, ev.ydata)
-            globe_drag_fromto(_start_pos, _stop_pos)
-            print 'moved to : ',_stop_pos
+            datapos = (ev.xdata, ev.ydata)
+            globe_drag_to(datapos)
+            print 'moved to : ',datapos
         print 'STOPPED.'
         globe_drag_stop()
 
